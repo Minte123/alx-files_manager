@@ -1,43 +1,20 @@
-import sha1 from 'sha1';
+/* eslint-disable import/no-named-as-default */
 import { v4 as uuidv4 } from 'uuid';
 import redisClient from '../utils/redis';
-import dbClient from '../utils/db';
 
-class AuthController {
+export default class AuthController {
   static async getConnect(req, res) {
-    // Reject if 'Authorization' header doesn't exist
-    if (!req.headers.authorization) return res.status(401).send({ error: 'Unauthorized' });
+    const { user } = req;
+    const token = uuidv4();
 
-    // Parse and decode header
-    const authPayload = req.headers.authorization.split(' ')[1];
-    const decodedAuthPayload = Buffer.from(authPayload, 'base64').toString('ascii');
-    const [email, clearPwd] = decodedAuthPayload.split(':');
-
-    // Reject if user doesn't exist or password doesn't match
-    const user = await dbClient.users.findOne({ email });
-    if (!user || sha1(clearPwd) !== user.password) return res.status(401).send({ error: 'Unauthorized' });
-
-    // If user exists create token, cache auth and return token
-    const authToken = uuidv4();
-    const redisKey = `auth_${authToken}`;
-
-    redisClient.set(redisKey, user._id.toString(), 86400);
-
-    return res.status(200).send({ token: authToken });
+    await redisClient.set(`auth_${token}`, user._id.toString(), 24 * 60 * 60);
+    res.status(200).json({ token });
   }
 
   static async getDisconnect(req, res) {
-    if (!req.headers['x-token']) return res.status(401).send({ error: 'Unauthorized' });
+    const token = req.headers['x-token'];
 
-    const redisKey = `auth_${req.headers['x-token']}`;
-    const userId = await redisClient.get(redisKey);
-
-    if (!userId) return res.status(401).send({ error: 'Unauthorized' });
-
-    await redisClient.del(redisKey);
-
-    return res.status(204).end();
+    await redisClient.del(`auth_${token}`);
+    res.status(204).send();
   }
 }
-
-module.exports = AuthController;
